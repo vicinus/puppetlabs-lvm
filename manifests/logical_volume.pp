@@ -21,6 +21,7 @@ define lvm::logical_volume (
   $range             = undef,
   $size_is_minsize   = undef,
   $type              = undef,
+  $lvm_device_path   = undef,
 ) {
 
   validate_bool($mountpath_require)
@@ -29,7 +30,11 @@ define lvm::logical_volume (
     fail("lvm::logical_volume \$name can't be undefined")
   }
 
-  $lvm_device_path = "/dev/${volume_group}/${name}"
+  if $lvm_device_path == undef {
+    $_lvm_device_path = "/dev/${volume_group}/${name}"
+  } else {
+    $_lvm_device_path = $lvm_device_path
+  }
 
   if $mountpath_require and $fs_type != 'swap' {
     Mount {
@@ -38,8 +43,8 @@ define lvm::logical_volume (
   }
 
   if $fs_type == 'swap' {
-    $mount_title     = $lvm_device_path
-    $fixed_mountpath = "swap_${lvm_device_path}"
+    $mount_title     = $_lvm_device_path
+    $fixed_mountpath = "swap_${_lvm_device_path}"
     $fixed_pass      = 0
     $fixed_dump      = 0
     $mount_ensure    = $ensure ? {
@@ -62,11 +67,11 @@ define lvm::logical_volume (
 
   if $ensure == 'present' and $createfs {
     Logical_volume[$name] ->
-    Filesystem[$lvm_device_path] ->
+    Filesystem[$_lvm_device_path] ->
     Mount[$mount_title]
   } elsif $ensure != 'present' and $createfs {
     Mount[$mount_title] ->
-    Filesystem[$lvm_device_path] ->
+    Filesystem[$_lvm_device_path] ->
     Logical_volume[$name]
   }
 
@@ -85,7 +90,7 @@ define lvm::logical_volume (
   }
 
   if $createfs {
-    filesystem { $lvm_device_path:
+    filesystem { $_lvm_device_path:
       ensure  => $ensure,
       fs_type => $fs_type,
       options => $mkfs_options,
@@ -97,15 +102,15 @@ define lvm::logical_volume (
       if $ensure == 'present' {
         exec { "swapon for '${mount_title}'":
           path      => [ '/bin', '/usr/bin', '/sbin' ],
-          command   => "swapon ${lvm_device_path}",
-          unless    => "grep `readlink -f ${lvm_device_path}` /proc/swaps",
+          command   => "swapon ${_lvm_device_path}",
+          unless    => "grep `readlink -f ${_lvm_device_path}` /proc/swaps",
           subscribe => Mount[$mount_title],
         }
       } else {
         exec { "swapoff for '${mount_title}'":
           path      => [ '/bin', '/usr/bin', '/sbin' ],
-          command   => "swapoff ${lvm_device_path}",
-          onlyif    => "grep `readlink -f ${lvm_device_path}` /proc/swaps",
+          command   => "swapoff ${_lvm_device_path}",
+          onlyif    => "grep `readlink -f ${_lvm_device_path}` /proc/swaps",
           subscribe => Mount[$mount_title],
         }
       }
@@ -120,7 +125,7 @@ define lvm::logical_volume (
     mount { $mount_title:
       ensure  => $mount_ensure,
       name    => $fixed_mountpath,
-      device  => $lvm_device_path,
+      device  => $_lvm_device_path,
       fstype  => $fs_type,
       options => $options,
       pass    => $fixed_pass,
